@@ -1,0 +1,10 @@
+[Unit]
+Description=Speed test every 30 minutes (~35 MB per run, ~1.7 GB/day)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=30min
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

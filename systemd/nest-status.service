@@ -12,3 +12,4 @@ ProtectSystem=strict
 ProtectHome=yes
 NoNewPrivileges=yes
 PrivateTmp=yes
+StateDirectory=nest-status
