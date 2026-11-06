@@ -1,0 +1,14 @@
+[Unit]
+Description=Push Nest Wifi status to New Relic
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/nest-status.env
+ExecStart=/usr/bin/python3 /opt/nest-status/nest_status.py
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
