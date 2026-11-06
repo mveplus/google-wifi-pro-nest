@@ -59,3 +59,7 @@ SELECT latest(softwareVersion) FROM Metric WHERE service='nest-wifi-status' FACE
 
 Alert: `nest.wan.online < 1` or `nest.router.up < 1` for 3 min. Note: if the WAN is down, the Pi can't reach New
 Relic either, so pair it with a **loss-of-signal** alert on `nest.router.up` (no data for 5 min = outage).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
