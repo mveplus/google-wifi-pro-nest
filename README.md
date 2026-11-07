@@ -14,12 +14,17 @@ from a Raspberry Pi and pushes gauges to the New Relic Metric API. Python 3 stdl
 | `nest.wan.online`, `ethernet_link`, `has_ip`, `captive_portal`, `invalid_credentials` | 0/1 |
 | `nest.software.update_required`, `update_progress` | |
 | `nest.wan.rx_bps`, `nest.wan.tx_bps` | household WAN throughput since the last run (UPnP counters, passive) |
-| `nest.wan.rx_bytes_total`, `tx_bytes_total` | raw UPnP counters (wrap at 4 GiB, reset on router reboot) |
+| `nest.wan.rx_pps`, `nest.wan.tx_pps` | packets per second since the last run (UPnP counters, passive) |
+| `nest.wan.rx_bytes_total`, `tx_bytes_total`, `rx_packets_total`, `tx_packets_total` | raw UPnP counters (32-bit, reset on router reboot) |
+| `nest.wan.rx_counter_saturated`, `tx_counter_saturated` | 1 = the byte counter is stuck at its 4 GiB ceiling, so that direction's `_bps` is not sent |
 | `nest.speedtest.download_bps`, `upload_bps` | `--speedtest`: Cloudflare 25 MB down / 10 MB up from the Pi |
 | `nest.speedtest.latency_ms`, `jitter_ms`, `ok` | median / spread of 5 requests on a warm HTTPS connection |
 
 Attributes on every point: `router`, `host`, `modelId`, `softwareVersion`, `updateStatus`, `ledAnimation`,
 `setupState`, `wanIp`, `wanGateway`, `dnsMode`.
+
+Byte counters have been seen stuck at 2^32-1 (4 GiB) instead of wrapping. While a counter is there, that direction
+has no `_bps` value rather than a false 0; use the `_pps` rates, which take far longer to fill.
 
 Throughput needs UPnP on (Google Home app → Wi-Fi → Settings → Advanced networking → UPnP). The speed test
 measures the Pi's own path, so on Pi Wi-Fi it caps at the Pi's link; use ethernet for line speed.

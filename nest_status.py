@@ -9,7 +9,7 @@ throughput, and with --speedtest runs an active download/upload test against
 speed.cloudflare.com.
 
 Config via env (see nest-status.env.example):
-  NEST_ROUTER      router IP/host           (default 192.168.78.1)
+  NEST_ROUTER      router IP/host           (default 192.168.86.1)
   NR_LICENSE_KEY   New Relic ingest/license key (required unless --dry-run)
   NR_REGION        US or EU                 (default US)
   NEST_HOST_LABEL  value for the 'host' attribute (default: this hostname)
@@ -35,6 +35,13 @@ NR_ENDPOINTS = {
 UA = "nest-status/1.0"
 UPNP_NS = "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1"
 CF = "https://speed.cloudflare.com"
+COUNTER_MAX = 2**32 - 1
+UPNP_COUNTERS = (
+    ("rx", "GetTotalBytesReceived", "NewTotalBytesReceived"),
+    ("tx", "GetTotalBytesSent", "NewTotalBytesSent"),
+    ("rx_pkts", "GetTotalPacketsReceived", "NewTotalPacketsReceived"),
+    ("tx_pkts", "GetTotalPacketsSent", "NewTotalPacketsSent"),
+)
 
 
 def common_attrs(router):
@@ -72,19 +79,30 @@ def state_path():
 
 
 def counter_delta(cur, prev):
-    """Delta of a byte counter; handles 32-bit wrap, returns None on reset."""
+    """Delta of a 32-bit UPnP counter, or None if it can't be trusted.
+
+    Some routers clamp the counter at 2**32-1 instead of wrapping it, so a value
+    at the ceiling means "no information", not "no traffic".
+    """
+    if cur >= COUNTER_MAX:
+        return None
     d = cur - prev
     if d >= 0:
         return d
-    if prev < 2**32:
+    if prev <= COUNTER_MAX:
         return d + 2**32
     return None
 
 
 def throughput_metrics(router, uptime, timeout):
-    """WAN rx/tx bits per second since the previous run, from UPnP counters."""
-    rx = int(upnp_call(router, "GetTotalBytesReceived", timeout)["NewTotalBytesReceived"])
-    tx = int(upnp_call(router, "GetTotalBytesSent", timeout)["NewTotalBytesSent"])
+    """WAN rates since the previous run, from UPnP counters.
+
+    Each rate is reported only when its own counter is usable: rx_bps can be
+    missing while tx_bps and the packet rates are still sent.
+    """
+    cur = {}
+    for key, action, field in UPNP_COUNTERS:
+        cur[key] = int(upnp_call(router, action, timeout)[field])
     now = time.time()
     path = state_path()
     try:
@@ -93,16 +111,23 @@ def throughput_metrics(router, uptime, timeout):
     except (OSError, ValueError):
         prev = None
     with open(path, "w") as f:
-        json.dump({"t": now, "rx": rx, "tx": tx, "uptime": uptime}, f)
+        json.dump({"t": now, "uptime": uptime, **cur}, f)
 
-    out = [gauge("nest.wan.rx_bytes_total", rx), gauge("nest.wan.tx_bytes_total", tx)]
+    out = [gauge("nest.wan.rx_bytes_total", cur["rx"]), gauge("nest.wan.tx_bytes_total", cur["tx"]),
+           gauge("nest.wan.rx_packets_total", cur["rx_pkts"]), gauge("nest.wan.tx_packets_total", cur["tx_pkts"])]
+    out += [gauge("nest.wan.rx_counter_saturated", b(cur["rx"] >= COUNTER_MAX)),
+            gauge("nest.wan.tx_counter_saturated", b(cur["tx"] >= COUNTER_MAX))]
     if not prev or uptime < prev.get("uptime", 0):  # first run or router rebooted
         return out
     dt = now - prev["t"]
-    drx, dtx = counter_delta(rx, prev["rx"]), counter_delta(tx, prev["tx"])
-    if dt <= 0 or dt > 900 or drx is None or dtx is None:
+    if dt <= 0 or dt > 900:
         return out
-    out += [gauge("nest.wan.rx_bps", round(drx * 8 / dt)), gauge("nest.wan.tx_bps", round(dtx * 8 / dt))]
+    for key, name, scale in (("rx", "rx_bps", 8), ("tx", "tx_bps", 8), ("rx_pkts", "rx_pps", 1), ("tx_pkts", "tx_pps", 1)):
+        if key not in prev:  # state file from an older version
+            continue
+        d = counter_delta(cur[key], prev[key])
+        if d is not None:
+            out.append(gauge(f"nest.wan.{name}", round(d * scale / dt)))
     return out
 
 
@@ -255,7 +280,7 @@ def run_once(args):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--router", default=os.environ.get("NEST_ROUTER", "192.168.78.1"))
+    p.add_argument("--router", default=os.environ.get("NEST_ROUTER", "192.168.86.1"))
     p.add_argument("--region", default=os.environ.get("NR_REGION", "US").upper(), choices=NR_ENDPOINTS)
     p.add_argument("--timeout", type=float, default=5.0)
     p.add_argument("--interval", type=int, default=0, help="loop every N seconds (0 = run once)")
